@@ -6,6 +6,13 @@ echo "=================================="
 echo " Setting up Python dependencies"
 echo "=================================="
 
+cd ..
+git clone https://github.com/nikolaj-zwergius/ROPE.git
+cd ROPE
+python install.py
+cd ..
+cd Blueprint_Designer
+
 # Create virtual environment if it doesn't exist
 if [ ! -d ".venv" ]; then
     echo "[1/4] Creating virtual environment..."
