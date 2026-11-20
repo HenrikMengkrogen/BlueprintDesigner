@@ -11,17 +11,8 @@ cd ..
 git clone https://github.com/nikolaj-zwergius/ROPE.git
 cd ROPE
 python3 install.py --mode edit
-cd rope/core
-echo "Now in rope/core directory, preparing to update Build_logic.py and grid_mapping.py"
-rm Build_logic.py
-rm trace_logic.py
-touch Build_logic.py
-pwd 
-cat ../../../BlueprintDesigner/build_logic.txt > Build_logic.py
-cat ../../../BlueprintDesigner/trace_logic.txt > trace_logic.py
-cd ../../../BlueprintDesigner
-rm trace_logic.txt
-rm build_logic.txt
+cd BlueprintDesigner
+
 
 pwd
 
