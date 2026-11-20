@@ -60,5 +60,6 @@ echo " Setup complete!"
 echo "=================================="
 echo "Activate your environment with:"
 echo "source .venv/bin/activate"
+echo "To run BlueprintDesigner simply type 'blueprint-designer' in terminal to initiate the program"
 
 
