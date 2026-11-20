@@ -6,15 +6,12 @@ echo "=================================="
 echo " Setting up Python dependencies"
 echo "=================================="
 
-
+# Installing ROPE outside the parent folder
 cd ..
 git clone https://github.com/nikolaj-zwergius/ROPE.git
 cd ROPE
 python3 install.py --mode edit
-cd BlueprintDesigner
-
-
-pwd
+cd ../BlueprintDesigner
 
 
 
