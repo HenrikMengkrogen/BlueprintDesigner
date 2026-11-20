@@ -6,12 +6,26 @@ echo "=================================="
 echo " Setting up Python dependencies"
 echo "=================================="
 
+
 cd ..
 git clone https://github.com/nikolaj-zwergius/ROPE.git
 cd ROPE
-python install.py
-cd ..
-cd Blueprint_Designer
+python3 install.py --mode edit
+cd rope/core
+echo "Now in rope/core directory, preparing to update Build_logic.py and grid_mapping.py"
+rm Build_logic.py
+rm trace_logic.py
+touch Build_logic.py
+cat ../../../Blueprint_Designer/build_logic.txt > Build_logic.py
+cat ../../../Blueprint_Designer/trace_logic.txt > trace_logic.py
+cd ../../../Blueprint_Designer
+rm trace_logic.txt
+rm build_logic.txt
+
+pwd
+
+
+
 
 # Create virtual environment if it doesn't exist
 if [ ! -d ".venv" ]; then
