@@ -1,4 +1,8 @@
+
 from __future__ import annotations
+import pyfurnace as pf
+
+from curses import window
 import math, sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,13 +11,18 @@ import platform
 import shutil
 import subprocess
 import sys
+
+from numpy import random
 from .fill_blueprint import *
 
 
 
-import pyfurnace as pf
-print(pf.Dovetail(-1))
-print(pf.Dovetail(-1).junctions)
+from PySide6.QtWidgets import QTabWidget
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
+from PySide6.QtWebEngineWidgets import QWebEngineView
+
+
+
 from PySide6.QtCore import QMimeData, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPen
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout,
@@ -59,6 +68,21 @@ from PySide6.QtWidgets import (
 
 
 
+import os, shutil, sys, tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from PySide6.QtCore import QObject, QProcess, Signal
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLineEdit,
+                               QSpinBox, QDoubleSpinBox, QLabel, QVBoxLayout)
+
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtCore import QProcessEnvironment
+
+#from rope.tools import *
+
+CPUS = os.cpu_count() or 1
 
 
 
@@ -77,11 +101,11 @@ CLIP_MARKER = "blueprint-designer-motifs"
 
 
 
-# ───────────────────────── motif specs ─────────────────────────
+
 @dataclass
 class Param:
     name: str
-    kind: str                 # "int" | "str" | "bool" | "choice"
+    kind: str                 
     default: object
     lo: int = 0
     hi: int = 100
@@ -184,6 +208,57 @@ COLORS = {"Stem": "#9ecae1", "Dovetail": "#dadaeb", "Loop": "#c7e9c0",
           "BranchedDimer" : "#e725b3", "AlphaKissingDimer" : "#fa46ca", "start_end_stem" : "#e725b3", "single_strand" : "#e725b3",
           "vertical_link" : "#e725b3", "vertical_double_link" : "#e725b3"}
 
+
+import random
+from .fill_blueprint import IUPAC     # IUPAC isn't in __all__, so import it explicitly
+
+_PAIRS = [("A", "U"), ("U", "A"), ("G", "C"), ("C", "G"), ("G", "U"), ("U", "G")]
+_OPEN, _CLOSE = "([{<", ")]}>"
+
+
+def _allowed(code):
+    if code in "ACGU":
+        return set(code)
+    return set(IUPAC.get(code, "ACGU"))
+
+
+
+def randomize_blueprint(text, rng=random):
+    """Replace every ambiguous letter (N, K, S, ...) with a random nucleotide.
+
+    Paired positions get complementary bases (incl. G-U wobble), so stems stay valid.
+    Fixed A/C/G/U letters are kept.
+    """
+    lines = text.splitlines()
+    p = parse_origami(lines)
+    template, struct = p.seq, p.struct
+    if struct is None:
+        raise BlueprintError("No 'Structure:' line found.")
+    if len(template) != len(struct):
+        raise BlueprintError("Sequence and Structure have different lengths.")
+
+    seq = [None] * len(template)
+
+    # pairs first (one stack per bracket type)
+    stacks = {c: [] for c in _OPEN}
+    for j, ch in enumerate(struct):
+        if ch in _OPEN:
+            stacks[ch].append(j)
+        elif ch in _CLOSE:
+            i = stacks[_OPEN[_CLOSE.index(ch)]].pop()
+            ok = [(a, b) for a, b in _PAIRS
+                  if a in _allowed(template[i]) and b in _allowed(template[j])]
+            if ok:
+                seq[i], seq[j] = rng.choice(ok)
+
+    # everything else (unpaired, or pairs that had no valid choice)
+    for k, code in enumerate(template):
+        if seq[k] is None:
+            seq[k] = rng.choice(sorted(_allowed(code)))
+
+    design = f"sequence : {''.join(seq)}\ntarget : {struct}\n"
+    return fill_blueprint(text, design).text()
+
 def build_kwargs(cls_name, values):
     kw = dict(values)
     seq = kw.get("sequence", "").strip().upper()
@@ -197,7 +272,7 @@ def build_kwargs(cls_name, values):
         kw.pop("sequence", None)
     return kw
 
-# ───────────────────────── geometry helpers ─────────────────────────
+
 def mono_font():
     f = QFont("Menlo")
     f.setStyleHint(QFont.StyleHint.Monospace)
@@ -221,22 +296,9 @@ def cell_size():
 def application_dir():
     """
     Return the application/project root.
-
-    Expected layout:
-
-    Blueprint_Designer/
-    ├── src/
-    │   └── blueprint_designer.py
-    ├── bin/
-    │   └── aros-macos
-    └── misc/
-        ├── input_1.txt
-        └── output/
     """
     if "__file__" in globals():
-        # __file__ is Blueprint_Designer/src/blueprint_designer.py
-        # .parent is Blueprint_Designer/src
-        # .parent.parent is Blueprint_Designer
+       
         return Path(__file__).resolve().parent.parent
 
     return Path.cwd().resolve()
@@ -407,17 +469,6 @@ def write_aros_input(sequence, structure, path):
 def read_aros_outputs(output_dir=AROS_OUTPUT_DIR):
     """
     Read all AROS result files below misc/output/run_*/.
-
-    Expected format, for example:
-
-        ==== FINAL (run 1) ====
-        sequence      : CAAACGUGACUUUCGAGUCGCGUUUG
-        target        : (((((((((((....)))))))))))
-        mfe structure : (((((((((((....)))))))))))
-        bp_distance   : 0
-        mfe           : -13.70
-        Ensemble Diversity : 0.23
-        slices        : 1
     """
     output_dir = Path(output_dir)
 
@@ -520,8 +571,7 @@ def read_aros_outputs(output_dir=AROS_OUTPUT_DIR):
             "AROS result format."
         )
 
-    # Primary quality criterion: lowest base-pair distance.
-    # Tie-breaker: lowest ensemble diversity.
+   
     return sorted(
         candidates,
         key=lambda candidate: (
@@ -533,9 +583,145 @@ def read_aros_outputs(output_dir=AROS_OUTPUT_DIR):
 
 
 
+CPUS = os.cpu_count() or 1
+
+@dataclass
+class Opt:
+    flag: str            
+    label: str
+    kind: str           
+    default: object
+    tip: str = ""
+
+@dataclass
+class Tool:
+    exe: str
+    title: str
+    opts: list[Opt] = field(default_factory=list)
+    needs_input: bool = True      
+
+RUNS = Opt("-r", "Runs", "int", 3)
+WORKERS = Opt("-w", "Workers/threads", "int", min(4, CPUS))
+
+TOOLS = {t.exe: t for t in [
+    Tool("rope-fold",     "Predict sequences (batch)", [RUNS, WORKERS]),
+    Tool("rope-dragon",   "Predict sequences (continuous)",
+         [RUNS, WORKERS, Opt("-e", "Ensemble diversity (ED)", "float", 0.0),
+          Opt("-t", "Time per run", "float", 60.0)]),
+    Tool("rope-build",    "Build PDB files",
+         [Opt("--ligand", "Ligand (MODULE=LIGAND)", "str", "")]),
+    Tool("rope-flip",     "Flip blueprint")
+]}
 
 
-# ───────────────────────── canvas item ─────────────────────────
+def find_exe(name: str) -> str:
+    """PATH first, then the scripts folder of the running interpreter."""
+    found = shutil.which(name)
+    if found:
+        return found
+    for cand in (Path(sys.executable).parent / name,
+                 Path(sys.executable).parent / f"{name}.exe",
+                 Path(sys.executable).parent / "Scripts" / f"{name}.exe"):
+        if cand.exists():
+            return str(cand)
+    raise FileNotFoundError(f"{name} not found. Is the package installed in this environment?")
+
+
+class OptionsDialog(QDialog):
+    def __init__(self, tool: Tool, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(tool.title)
+        self.tool, self.widgets = tool, {}
+        lay = QVBoxLayout(self)
+        form = QFormLayout()
+        for o in tool.opts:
+            if o.kind == "int":
+                w = QSpinBox(); w.setRange(1, 100000); w.setValue(o.default)
+            elif o.kind == "float":
+                w = QDoubleSpinBox(); w.setRange(0, 1e6); w.setValue(o.default)
+            else:
+                w = QLineEdit(str(o.default))
+            w.setToolTip(o.tip)
+            self.widgets[o.flag] = w
+            form.addRow(o.label, w)
+        lay.addLayout(form)
+        if not tool.opts:
+            lay.addWidget(QLabel("No options. Run with current blueprint."))
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(self.accept); bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+
+    def args(self) -> list[str]:
+        out = []
+        for o in self.tool.opts:
+            w = self.widgets[o.flag]
+            v = w.text().strip() if isinstance(w, QLineEdit) else w.value()
+            if v == "" :
+                continue
+            out += [o.flag, str(v)]
+        return out
+
+
+class RopeRunner(QObject):
+    output = Signal(str)          
+    finished = Signal(int, str)   
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.proc: QProcess | None = None
+        self.workdir = ""
+        self.base_dir: Path | None = None
+        self.current_exe = ""
+
+    def running(self):
+        return self.proc is not None and self.proc.state() != QProcess.NotRunning
+
+    def run(self, tool: Tool, args: list[str], blueprint_text: str | None):
+        if self.running():
+            self.output.emit("A job is already running. Stop it first.\n")
+            return
+        try:
+            exe = find_exe(tool.exe)
+        except FileNotFoundError as ex:
+            self.output.emit(f"{ex}\n")
+            return
+
+        
+        if self.base_dir is None:
+            self.base_dir = Path(tempfile.gettempdir())      # fallback
+        self.workdir = tempfile.mkdtemp(prefix=f"{tool.exe}_", dir=self.base_dir)
+        self.current_exe = tool.exe
+        cmd_args = list(args)
+        if tool.needs_input:
+            bp = Path(self.workdir) / "blueprint.txt"
+            bp.write_text(blueprint_text or "", encoding="utf-8")
+            cmd_args.append(bp.name)
+
+        self.proc = QProcess(self)                      
+        self.proc.setWorkingDirectory(self.workdir)
+        self.proc.setProcessChannelMode(QProcess.MergedChannels)
+
+        env = QProcessEnvironment.systemEnvironment()   
+        env.insert("PYTHONUNBUFFERED", "1")
+        self.proc.setProcessEnvironment(env)
+
+        self.proc.readyReadStandardOutput.connect(
+            lambda: self.output.emit(
+                bytes(self.proc.readAllStandardOutput()).decode(errors="replace")))
+        self.proc.errorOccurred.connect(
+            lambda e: self.output.emit(f"\n[process error: {e}]\n"))
+        self.proc.finished.connect(
+            lambda code, _s: self.finished.emit(code, self.workdir))
+        self.output.emit(f"$ {tool.exe} {' '.join(cmd_args)}\n(in {self.workdir})\n\n")
+        self.proc.start(exe, cmd_args)   
+
+    def stop(self):
+        if self.running():
+            self.proc.terminate()
+            if not self.proc.waitForFinished(2000):
+                self.proc.kill()
+
+
+
 class MotifItem(QGraphicsRectItem):
     def __init__(self, cls_name):
         super().__init__()
@@ -673,6 +859,7 @@ class MotifItem(QGraphicsRectItem):
         ghost, t = self.scene().ghost, self.find_snap()
         if t is not None:
             ghost.setRect(t.x(), t.y(), self.rect().width(), self.rect().height())
+            #ghost.setRect(t.x(), t.y(), self.rect().width(), self.rect().height())
             ghost.show()
         else:
             ghost.hide()
@@ -722,18 +909,6 @@ class MotifItem(QGraphicsRectItem):
         self.natural_width = max(len(line) for line in lines) * cw
         self.natural_height = len(lines) * ch
         self.setRect(0, 0, self.natural_width, self.natural_height)
-
-
-
-    
-
-
-
-
-
-   
-
-
 
 
 
@@ -819,7 +994,7 @@ class MotifItem(QGraphicsRectItem):
    
 
 
-    # --- snapping ---
+ 
     def find_snap(self):
         """
         Closest compatible junction pair, horizontal or vertical.
@@ -856,10 +1031,10 @@ class MotifItem(QGraphicsRectItem):
 
             # (my edge, their edge, axis, new left, new top)
             configs = [
-                ("L", "R", "h", r.right(),                None),                 # I go right of O
-                ("R", "L", "h", r.left() - me.width(),    None),                 # I go left of O
-                ("T", "B", "v", None,                     r.bottom()),           # I go under O
-                ("B", "T", "v", None,                     r.top() - me.height()) # I go above O
+                ("L", "R", "h", r.right(),                None),                 
+                ("R", "L", "h", r.left() - me.width(),    None),                
+                ("T", "B", "v", None,                     r.bottom()),           
+                ("B", "T", "v", None,                     r.top() - me.height()) 
             ]
             for my_edge, their_edge, axis, new_left, new_top in configs:
                 for mp in mine[my_edge]:
@@ -886,25 +1061,9 @@ class MotifItem(QGraphicsRectItem):
                             continue         # that slot is already occupied
                         best, best_d = QPointF(self.x() + dx, self.y() + dy), d
         return best
-    def mouseMoveEvent(self, e):
-        super().mouseMoveEvent(e)
-        ghost, t = self.scene().ghost, self.find_snap()
-        if t:
-            ghost.setRect(
-                t.x(),
-                t.y(),
-                self.rect().width(),
-                self.rect().height(),
-            )
+   
 
-            ghost.show()
-        else:
-            ghost.hide()
-
-    def mouseReleaseEvent(self, e):
-        super().mouseReleaseEvent(e)
-        self.scene().ghost.hide()
-        self.snap()
+   
 
     def snap(self):
         target = self.find_snap()
@@ -923,10 +1082,77 @@ class MotifItem(QGraphicsRectItem):
 
 
 
+VIEWER_HTML = """<html><body style="margin:0;overflow:hidden;background:white">
+<div id="v" style="width:100vw;height:100vh;position:relative"></div>
+<div id="msg" style="position:absolute;top:4px;left:4px;color:red;font:12px monospace"></div>
+<script src="__SRC__"></script>
+<script>
+try {
+  const pdb = __PDB__;
+  const v = $3Dmol.createViewer("v", {backgroundColor: "white"});
+  v.addModel(pdb, "pdb");
+  v.setStyle({}, {stick: {radius: 0.2}});
+  v.setStyle({}, {stick: {radius: 0.2}, cartoon: {color: "spectrum"}});
+  v.zoomTo(); v.render();
+  window.addEventListener("resize", () => { v.resize(); v.render(); });
+} catch (e) {
+  document.getElementById("msg").textContent = "Viewer error: " + e;
+  console.log("Viewer error: " + e);
+}
+</script></body></html>"""
 
 
+class LoggingPage(QWebEnginePage):
+    def javaScriptConsoleMessage(self, level, msg, line, src):
+        print(f"[JS] {msg}  ({src}:{line})")
 
-# ───────────────────────── properties panel ─────────────────────────
+
+class StructureViewer(QWidget):
+    """Lists the .pdb files in a folder and shows the selected one in 3D."""
+    def __init__(self):
+        super().__init__()
+        lay = QVBoxLayout(self)
+        self.combo = QComboBox()
+        self.web = QWebEngineView()
+        self.web.setPage(LoggingPage(self.web))
+        s = self.web.settings()
+        s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+        s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+        lay.addWidget(self.combo)
+        lay.addWidget(self.web, 1)
+        self.files = []
+        self.tmpdir = Path(tempfile.mkdtemp(prefix="viewer_"))
+        self.combo.currentIndexChanged.connect(self.show_current)
+
+    def load_folder(self, folder):
+        folder = Path(folder)
+        self.files = sorted(folder.rglob("*.pdb"))
+        self.combo.blockSignals(True)
+        self.combo.clear()
+        self.combo.addItems([str(p.relative_to(folder)) for p in self.files])
+        self.combo.blockSignals(False)
+        if self.files:
+            self.show_current(0)
+        return len(self.files)
+
+    def show_current(self, i):
+        if not (0 <= i < len(self.files)):
+            return
+        pdb = self.files[i].read_text(errors="replace")
+        local = APP_DIR / "misc" / "3Dmol-min.js"
+        src = local.as_uri() if local.exists() else "https://3Dmol.org/build/3Dmol-min.js"
+        html = (VIEWER_HTML.replace("__SRC__", src)
+                           .replace("__PDB__", json.dumps(pdb)))
+        page = self.tmpdir / "viewer.html"
+        page.write_text(html, encoding="utf-8")
+        self.web.load(QUrl.fromLocalFile(str(page)))
+        print(f"[viewer] {self.files[i]}  ({len(pdb)} chars, script: {src})")
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if self.files:                      
+            self.show_current(self.combo.currentIndex())
+
 class PropertiesPanel(QWidget):
     def __init__(self):
         super().__init__()
@@ -934,6 +1160,8 @@ class PropertiesPanel(QWidget):
         self.title = QLabel("Select a motif to edit it")
         self.title.setStyleSheet("font-weight: bold")
         self.host = QWidget()
+        self.cls_name = None
+        self.templates = {}
         self.form = QFormLayout(self.host)
         self.error = QLabel()
         self.error.setStyleSheet("color: #d62728")
@@ -943,17 +1171,48 @@ class PropertiesPanel(QWidget):
         self.info.setFont(mono_font())
         for w in (self.title, self.host, self.error):
             lay.addWidget(w)
-        lay.addWidget(self.info, 1)
+        #lay.addWidget(self.info, 1)
+
+        self.viewer = StructureViewer()
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.info, "Info")
+        self.tabs.addTab(self.viewer, "3D")
+        lay.addWidget(self.tabs, 1)
         self.item, self.widgets = None, {}
 
-    def show_item(self, item):
-        self.item = None                       # ignore signals while rebuilding
+    def _clear_form(self):
+        self.item = None
+        self.cls_name = None
         while self.form.rowCount():
             self.form.removeRow(0)
         self.widgets = {}
         self.error.clear()
+
+    def show_class(self, cls_name):
+        self._clear_form()
+        self.title.setText(f"{cls_name} (template for new motifs)")
+        vals = self.templates.setdefault(
+            cls_name, {p.name: p.default for p in SPECS[cls_name]}
+        )
+        for p in SPECS[cls_name]:
+            w = self._make(p, vals[p.name])
+            self.widgets[p.name] = w
+            self.form.addRow(p.name, w)
+        self.cls_name = cls_name
+        self.update_info()
+
+    def update_preview(self):
+        name = self.cls_name
+        try:
+            m = getattr(pf, name)(**build_kwargs(name, {n: self._read(w) for n, w in self.widgets.items()}))
+            self.info.setPlainText(f"{m}\n\nsequence:  {m.sequence}\nstructure: {m.structure}")
+        except Exception as ex:
+            self.error.setText(f"{type(ex).__name__}: {ex}")
+
+    def show_item(self, item):
+        self._clear_form()
         if item is None:
-            self.title.setText("Select a single motif to edit it")
+            self.title.setText("Select a motif to edit it")
             self.info.clear()
             return
         self.title.setText(item.cls_name)
@@ -988,13 +1247,15 @@ class PropertiesPanel(QWidget):
         return w.text().strip()
 
     def on_change(self, *_):
-        if not self.item:
-            return
         values = {n: self._read(w) for n, w in self.widgets.items()}
-        if values == self.item.values:
-            return
-        self.error.setText(self.item.set_state(values=values) or "")
-        self.update_info()
+        if self.item:                              
+            if values == self.item.values:
+                return
+            self.error.setText(self.item.set_state(values=values) or "")
+            self.update_info()
+        elif self.cls_name:                       
+            self.templates[self.cls_name] = values
+            self.update_preview()
 
 
 
@@ -1005,7 +1266,7 @@ class PropertiesPanel(QWidget):
         except Exception as ex:
             self.info.setPlainText(str(ex))
 
-# ───────────────────────── palette + canvas ─────────────────────────
+
 class Palette(QListWidget):
     def __init__(self):
         super().__init__()
@@ -1023,6 +1284,7 @@ class Palette(QListWidget):
 class Canvas(QGraphicsView):
     exported = Signal(str)
     motif_edited = Signal(object)
+    saved = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -1058,6 +1320,16 @@ class Canvas(QGraphicsView):
 
     _paste_count = 0
     _copy_origin = (0.0, 0.0)
+
+    def blueprint_text(self):
+        """Blueprint as the rope-* tools expect it: drawing with 5'/3' markers."""
+        self.origami()                      # raises if nothing RNA-bearing / can't assemble
+        text = self.export()
+        try:
+            res = fill_blueprint(text)      # no design -> only adds the 5'/3' markers
+        except BlueprintError as ex:
+            raise ValueError(f"Could not mark the 5'/3' ends: {ex}")
+        return ">Origami\n\n" + res.text()
 
     def copy_selection(self):
         items = self.selected()
@@ -1269,6 +1541,7 @@ class Canvas(QGraphicsView):
             design_text = (f"sequence : {best['sequence']}\n"
                            f"target : {best['structure']}\n")
             result = fill_blueprint(text, design_text)
+            
  
         except subprocess.TimeoutExpired:
             message = ("AROS timed out after 600 seconds.\n"
@@ -1306,6 +1579,7 @@ class Canvas(QGraphicsView):
         if result.warnings:
             report += "\nWarnings:\n" + "\n".join(f"  {w}" for w in result.warnings) + "\n"
         self.exported.emit(f"{report}\n{result.text()}")
+        self.saved.emit(str(Path(filename).parent))
         return True
 
 
@@ -1394,10 +1668,7 @@ class Canvas(QGraphicsView):
             path=AROS_INPUT_FILE,
         )
 
-        # Answers to AROS's two terminal prompts:
-        #
-        # How many complete runs should be performed? [3]:
-        # How many hill-climbing starts per run? [5]:
+        
         aros_stdin = f"{runs}\n{starts}\n"
 
         env = {
@@ -1525,7 +1796,9 @@ class Canvas(QGraphicsView):
             self.exported.emit(
                 f"Saved blueprint to:\n{filename}\n\n{text}"
             )
+            self.saved.emit(str(Path(filename).parent))
             return True
+        
 
         except OSError as ex:
             QMessageBox.critical(
@@ -1573,15 +1846,17 @@ class Canvas(QGraphicsView):
 
 
     def dropEvent(self, e):
-        item = MotifItem(e.mimeData().text())
+        name = e.mimeData().text()
+        item = MotifItem(name)
+        vals = getattr(self, "templates", {}).get(name)
+        if vals:
+            err = item.set_state(values=dict(vals))
+            if err:
+                self.exported.emit(err)
+
         self.scene().addItem(item)
-
         item.setPos(self.mapToScene(e.position().toPoint()))
-
-        # Establish the shared row height, then snap onto that row grid.
-        # self.normalize_box_heights()
         item.snap()
-
         e.acceptProposedAction()
 
 
@@ -1757,10 +2032,7 @@ class Canvas(QGraphicsView):
 
 
 
-print(APP_DIR)
-print(AROS_BIN)
-print(AROS_INPUT_FILE)
-print(AROS_OUTPUT_DIR)
+
 
 def main():
     app = QApplication.instance() or QApplication(sys.argv)
@@ -1774,6 +2046,7 @@ def main():
     out.setFont(mono_font())
 
     canvas.exported.connect(out.setPlainText)
+    palette.itemClicked.connect(lambda it: props.show_class(it.text()))
 
     def on_selection():
         selected = canvas.selected()
@@ -1781,6 +2054,8 @@ def main():
 
     canvas.scene().selectionChanged.connect(on_selection)
     canvas.motif_edited.connect(props.show_item)
+    canvas.templates = props.templates
+    palette.itemClicked.connect(lambda it: props.show_class(it.text()))
 
     left = QSplitter(Qt.Orientation.Vertical)
     left.addWidget(palette)
@@ -1798,6 +2073,59 @@ def main():
     split.setSizes([300, 800])
 
     window = QMainWindow()
+    runner = RopeRunner(window)
+    runner.output.connect(lambda s: (out.moveCursor(out.textCursor().MoveOperation.End),
+                                     out.insertPlainText(s)))
+    #runner.finished.connect(lambda code, d: (
+    #    out.appendPlainText(f"\n[finished, exit code {code}]  results: {d}")
+        #QDesktopServices.openUrl(QUrl.fromLocalFile(d))
+    #    ))   
+
+    def on_finished(code, workdir):
+        out.appendPlainText(f"\n[finished, exit code {code}]  results: {workdir}")
+        if runner.current_exe == "rope-build" and code == 0:
+            n = props.viewer.load_folder(workdir)
+            if n:
+                props.tabs.setCurrentWidget(props.viewer)
+                out.appendPlainText(f"Loaded {n} PDB files into 3D viewer.")
+            else:
+                out.appendPlainText("No PDB files found in results folder.")
+    runner.finished.connect(on_finished)
+    canvas.saved.connect(lambda folder: setattr(runner, "base_dir", Path(folder)))
+
+    def choose_results_folder():
+            d = QFileDialog.getExistingDirectory(window, "Choose results folder")
+            if d:
+                runner.base_dir = Path(d)
+                out.appendPlainText(f"Results folder: {d}")
+    def run_tool(exe):
+        tool = TOOLS[exe]
+        dlg = OptionsDialog(tool, window)
+        if not dlg.exec():
+            return
+        try:
+            text = canvas.blueprint_text() if tool.needs_input else None
+            if text and exe == "rope-build":
+                text = randomize_blueprint(text)
+        except Exception as ex:
+            out.setPlainText(f"Cannot run {exe}: {type(ex).__name__}: {ex}")
+            return
+        runner.run(tool, dlg.args(), text)
+
+    menu = window.menuBar().addMenu("&Tools")
+    for exe, tool in TOOLS.items():
+        act = QAction(f"{tool.title}  ({exe})", window)
+        act.triggered.connect(lambda _=False, e=exe: run_tool(e))
+        menu.addAction(act)
+    menu.addSeparator()
+    stop = QAction("Stop running job", window)
+    stop.triggered.connect(runner.stop)
+    
+
+    pick = QAction("Set results folder...", window)
+    pick.triggered.connect(choose_results_folder)
+    menu.addAction(pick)
+    menu.addAction(stop)
     window.setWindowTitle("Blueprint Designer")
     window.setCentralWidget(split)
     window.resize(1200, 780)
@@ -1807,4 +2135,4 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
