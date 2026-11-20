@@ -16,9 +16,10 @@ echo "Now in rope/core directory, preparing to update Build_logic.py and grid_ma
 rm Build_logic.py
 rm trace_logic.py
 touch Build_logic.py
-cat ../../../Blueprint_Designer/build_logic.txt > Build_logic.py
-cat ../../../Blueprint_Designer/trace_logic.txt > trace_logic.py
-cd ../../../Blueprint_Designer
+pwd 
+cat ../../../BlueprintDesigner/build_logic.txt > Build_logic.py
+cat ../../../BlueprintDesigner/trace_logic.txt > trace_logic.py
+cd ../../../BlueprintDesigner
 rm trace_logic.txt
 rm build_logic.txt
 
@@ -40,7 +41,7 @@ source .venv/bin/activate
 
 # Upgrade pip
 echo "[2/4] Upgrading pip..."
-python -m pip install --upgrade pip
+python -m pip install -e --upgrade pip
 
 # Install dependencies
 echo "[3/4] Installing packages..."
@@ -56,4 +57,5 @@ echo " Setup complete!"
 echo "=================================="
 echo "Activate your environment with:"
 echo "source .venv/bin/activate"
+
 
