@@ -1,0 +1,2 @@
+[console_scripts]
+blueprint-designer = blueprint_designer.main:main

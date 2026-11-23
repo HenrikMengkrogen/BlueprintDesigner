@@ -1,2 +1,3 @@
 PySide6>=6.6
 pyfurnace
+platformdirs>=4.0

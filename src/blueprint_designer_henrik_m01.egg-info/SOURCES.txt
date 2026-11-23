@@ -1,0 +1,16 @@
+LICENCE
+README.md
+pyproject.toml
+src/blueprint_designer/___main.py
+src/blueprint_designer/__init__.py
+src/blueprint_designer/fill_blueprint.py
+src/blueprint_designer/main.py
+src/blueprint_designer/bin/aros-macos
+src/blueprint_designer/misc/input_1.txt
+src/blueprint_designer/misc/output/run_1/output_1.txt
+src/blueprint_designer_henrik_m01.egg-info/PKG-INFO
+src/blueprint_designer_henrik_m01.egg-info/SOURCES.txt
+src/blueprint_designer_henrik_m01.egg-info/dependency_links.txt
+src/blueprint_designer_henrik_m01.egg-info/entry_points.txt
+src/blueprint_designer_henrik_m01.egg-info/requires.txt
+src/blueprint_designer_henrik_m01.egg-info/top_level.txt

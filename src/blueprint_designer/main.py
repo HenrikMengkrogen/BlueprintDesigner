@@ -294,14 +294,10 @@ def cell_size():
         fm.lineSpacing(),
     )
 def application_dir():
-    """
-    Return the application/project root.
-    """
-    if "__file__" in globals():
-       
-        return Path(__file__).resolve().parent.parent
+    """Folder that contains main.py, bin/ and misc/."""
+    return Path(__file__).resolve().parent
 
-    return Path.cwd().resolve()
+APP_DIR = application_dir()
 
 
 def ensure_executable(path):
@@ -321,7 +317,8 @@ def ensure_executable(path):
 
     return path
 
-APP_DIR = application_dir()
+
+
 
 def aros_binary_path():
     """

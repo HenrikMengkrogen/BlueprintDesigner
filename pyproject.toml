@@ -24,6 +24,7 @@ license-files = ["LICEN[CS]E*"]
 dependencies = [
     "PySide6>=6.6",
     "pyfurnace",
+    "platformdirs>=4.0",
 ]
 
 [project.scripts]
@@ -31,3 +32,11 @@ blueprint-designer = "blueprint_designer.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+blueprint_designer = [
+    "bin/*",
+    "misc/*",
+    "misc/**/*",
+]
+
