@@ -58,13 +58,13 @@ source .venv/bin/activate
 
 ## Running
 
-With the environment active, start the application from the project root (the script uses package-relative imports, so run it as a module):
+With the environment active, start the application from the project root:
 
 ```bash
-python -m <package>.<main_module>
+blueprint-designer
 ```
 
-Replace `<package>.<main_module>` with the module that contains `main()` (the file with the `if __name__ == "__main__"` block).
+
 
 ## Project layout
 
