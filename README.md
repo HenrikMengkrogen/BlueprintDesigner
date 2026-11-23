@@ -33,7 +33,7 @@ Built with PySide6 (Qt).
 Run the setup script from inside the `Blueprint_Designer` folder:
 
 ```bash
-chmod +x setup.sh      # use your actual script name
+chmod +x setup.sh      
 ./setup.sh
 ```
 
