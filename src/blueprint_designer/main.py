@@ -71,6 +71,7 @@ def application_dir():
 
 
 APP_DIR = application_dir()
+print(APP_DIR)
 
 
 def aros_binary_path():
@@ -90,6 +91,7 @@ AROS_BIN = aros_binary_path()
 # These must match the paths hard-coded or configured inside AROS.
 AROS_INPUT_FILE = APP_DIR / "misc" / "input_1.txt"
 AROS_OUTPUT_DIR = APP_DIR / "misc" / "output"
+
 
 
 def ensure_executable(path):
@@ -1047,7 +1049,7 @@ class Canvas(QGraphicsView):
         sequence, structure = self.aros_input()
         write_aros_input(sequence, structure, path=AROS_INPUT_FILE)
 
-        aros_stdin = f"{runs}\n{starts}\n"
+        aros_stdin = f"{runs}\n{starts}"
         env = {**os.environ, "RUST_BACKTRACE": "1"}
 
         self.clear_aros_outputs()
