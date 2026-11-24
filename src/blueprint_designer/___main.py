@@ -12,8 +12,7 @@ from .fill_blueprint import *
 
 
 import pyfurnace as pf
-print(pf.Dovetail(-1))
-print(pf.Dovetail(-1).junctions)
+
 from PySide6.QtCore import QMimeData, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPen
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout,
